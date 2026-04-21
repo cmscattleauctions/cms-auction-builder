@@ -402,11 +402,11 @@ const DROPBOX_BANNER_PATH = '/Users/brysonmurray/Library/CloudStorage/Dropbox/Au
 // OBS canvas (4K)
 const CANVAS_W = 3840, CANVAS_H = 2160;
 
-// Transition banner dimensions (full-width 4K)
-const TBW = 3840, TBH = 200;
+// Transition banner dimensions (full-width 4K, proportional height)
+const TBW = 3840, TBH = 400;
 
-// Option banner dimensions (1920x200, transparent background, centered content)
-const OBW = 1920, OBH = 200;
+// Option banner dimensions (1500x380, transparent background, centered content)
+const OBW = 1500, OBH = 380;
 
 // Generic draw-surface constants — most drawing code was written against
 // "BW" / "BH" for the rectangular 1920x200 style. We keep those aliases for
@@ -414,11 +414,11 @@ const OBW = 1920, OBH = 200;
 const BW = 1920, BH = 200;
 
 // Where on the canvas each banner is placed.
-// Transition: full-width, bottom flush.           pos = (0, CANVAS_H - TBH)
-// Option:     1920-wide, centered horizontally,   pos = ((CANVAS_W - OBW)/2, 0)
+// Transition: full-width (3840x400), bottom flush.      pos = (0, 1760)
+// Option:     1500x380, centered horizontally, top.     pos = (1170, 0)
 const TRANSITION_POS_X = 0;
-const TRANSITION_POS_Y = CANVAS_H - TBH;     // 1960 — bottom flush
-const OPTION_POS_X = (CANVAS_W - OBW) / 2;   // 960 — centered horizontally
+const TRANSITION_POS_Y = CANVAS_H - TBH;     // 1760 — bottom flush
+const OPTION_POS_X = (CANVAS_W - OBW) / 2;   // 1170 — centered horizontally
 const OPTION_POS_Y = 0;                       // top flush
 
 // ═══════════════════════════════════════════════════════════════
@@ -779,57 +779,58 @@ function drawStyle1Standard(ctx, banner, img) {
 }
 
 function drawStyle1Option(ctx, banner) {
-  // Transparent PNG — leave canvas clear. Banner is 1920x200.
-  ctx.clearRect(0, 0, BW, BH);
+  // Transparent PNG — leave canvas clear. Banner is OBW x OBH (1500 x 380).
+  ctx.clearRect(0, 0, OBW, OBH);
 
   // Navy color — slightly deeper than C_DARK to match the reference image
   const NAVY = '#2e4a6b';
 
-  // Layout: two side-by-side rectangles centered inside the 1920x200 canvas.
-  // Total block width ~ 1560px, block height = full 200px (flush top/bottom).
-  // Left block (solid navy) holds "OPTION THROUGH LOT".
-  // Right block (white fill with navy outline) holds the lot number like "401-B".
-  const blockH = BH;
-  const leftW  = 860;
-  const gap    = 16;
-  const rightW = 560;
-  const totalW = leftW + gap + rightW;
-  const startX = Math.round((BW - totalW) / 2);
+  // Layout: two EQUAL-WIDTH panels side-by-side, filling the full 1500x380.
+  // Divider sits exactly at horizontal center (x = 750).
+  const halfW  = OBW / 2;       // 750
+  const blockH = OBH;           // 380
   const topY   = 0;
 
-  // --- Left panel: solid navy rectangle ---
+  // --- Left panel: solid navy rectangle (0..750) ---
   ctx.fillStyle = NAVY;
-  ctx.fillRect(startX, topY, leftW, blockH);
+  ctx.fillRect(0, topY, halfW, blockH);
 
   // "OPTION" + "THROUGH LOT" stacked, centered in the left panel
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = C_WHITE;
-  ctx.font = OF(700, 58);
-  const leftCX = startX + leftW / 2;
-  ctx.fillText('OPTION', leftCX, topY + blockH / 2 - 34);
-  ctx.fillText('THROUGH LOT', leftCX, topY + blockH / 2 + 34);
+  // Font size proportional to height (was 58 on a 200-tall canvas → ~110 on 380-tall)
+  const labelFont = 96;
+  const lineOffset = labelFont * 0.62;  // half the distance between the two lines
+  ctx.font = OF(700, labelFont);
+  const leftCX = halfW / 2;
+  ctx.fillText('OPTION', leftCX, blockH / 2 - lineOffset);
+  ctx.fillText('THROUGH LOT', leftCX, blockH / 2 + lineOffset);
   ctx.restore();
 
-  // --- Right panel: white fill with navy outline ---
-  const rightX = startX + leftW + gap;
+  // --- Right panel: white fill with navy outline (750..1500) ---
+  const rightX = halfW;
+  const rightW = halfW;
   ctx.fillStyle = C_WHITE;
   ctx.fillRect(rightX, topY, rightW, blockH);
+  // Navy outline around the right panel (inset slightly so stroke is fully visible)
   ctx.strokeStyle = NAVY;
-  ctx.lineWidth = 6;
-  ctx.strokeRect(rightX + 3, topY + 3, rightW - 6, blockH - 6);
+  const strokeWidth = 10;
+  ctx.lineWidth = strokeWidth;
+  const inset = strokeWidth / 2;
+  ctx.strokeRect(rightX + inset, topY + inset, rightW - strokeWidth, blockH - strokeWidth);
 
-  // Lot number inside right panel
+  // Lot number inside right panel — ~65% of panel height (user requested "60-70% of height")
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // banner.lotNumber will be something like "401-B" (hyphenated)
-  // Auto-shrink if long
-  let fontSz = 110;
+  // Target ~65% of block height => ~247px font. Auto-shrink if it gets too wide.
+  let fontSz = Math.round(blockH * 0.65);
   ctx.font = OF(700, fontSz);
-  while (ctx.measureText(banner.lotNumber).width > rightW - 40 && fontSz > 60) {
-    fontSz -= 4;
+  const maxTextW = rightW - 80;
+  while (ctx.measureText(banner.lotNumber).width > maxTextW && fontSz > 80) {
+    fontSz -= 6;
     ctx.font = OF(700, fontSz);
   }
   ctx.fillStyle = NAVY;
@@ -921,21 +922,29 @@ async function drawBannerAsync(banner) {
   const canvas = document.createElement('canvas');
 
   if (banner.kind === 'option') {
-    // Option banner: 1920x200, transparent background
+    // Option banner: 1500x380, transparent background
     canvas.width = OBW;
     canvas.height = OBH;
     const ctx = canvas.getContext('2d');
-    if (currentOptionStyle === 1) drawStyle1Option(ctx, banner);
-    else drawStyle2Option(ctx, banner);
+    if (currentOptionStyle === 1) {
+      // Style 1 is drawn natively in OBW x OBH (the new reference-image layout)
+      drawStyle1Option(ctx, banner);
+    } else {
+      // Style 2 is an older 1920x200 design — scale its draw code to fit the new canvas.
+      ctx.save();
+      ctx.scale(OBW / BW, OBH / BH);
+      drawStyle2Option(ctx, banner);
+      ctx.restore();
+    }
     return canvas;
   }
 
-  // Transition banner: render at 3840x200 by scaling the 1920-based draw code 2x horizontally.
-  // The draw funcs use BW=1920 / BH=200 internally; we upscale the canvas to keep text sharp.
+  // Transition banner: render at 3840x400 by scaling the 1920-based draw code 2x in both axes.
+  // The draw funcs use BW=1920 / BH=200 internally; we upscale proportionally for sharp text.
   canvas.width = TBW;
   canvas.height = TBH;
   const ctx = canvas.getContext('2d');
-  // Scale horizontally by 2x so all existing math (which assumes BW=1920) fills the 3840 canvas
+  // Scale both axes proportionally (2x horizontal, 2x vertical) so the 1920x200 design fills 3840x400
   ctx.scale(TBW / BW, TBH / BH);
 
   const url = getStateImageUrl(banner.stateAbbr);
@@ -1603,6 +1612,7 @@ function sampleBannerForStyle() {
 async function renderStylePreviews() {
   const samples = sampleBannerForStyle();
 
+  // Standard (transition) style previews: draw at 1920x200 design size — gets CSS-scaled in the card.
   for (const [canvasId, styleNum] of [['pickStd1Canvas', 1], ['pickStd2Canvas', 2]]) {
     const canvas = document.getElementById(canvasId);
     canvas.width = BW; canvas.height = BH;
@@ -1616,12 +1626,18 @@ async function renderStylePreviews() {
     else drawStyle2Standard(ctx, samples.std, img);
   }
 
+  // Option style previews: Style 1 is native OBWxOBH (1500x380), Style 2 is an older 1920x200 design.
   for (const [canvasId, styleNum] of [['pickOpt1Canvas', 1], ['pickOpt2Canvas', 2]]) {
     const canvas = document.getElementById(canvasId);
-    canvas.width = BW; canvas.height = BH;
-    const ctx = canvas.getContext('2d');
-    if (styleNum === 1) drawStyle1Option(ctx, samples.opt);
-    else drawStyle2Option(ctx, samples.opt);
+    if (styleNum === 1) {
+      canvas.width = OBW; canvas.height = OBH;
+      const ctx = canvas.getContext('2d');
+      drawStyle1Option(ctx, samples.opt);
+    } else {
+      canvas.width = BW; canvas.height = BH;
+      const ctx = canvas.getContext('2d');
+      drawStyle2Option(ctx, samples.opt);
+    }
   }
 }
 
