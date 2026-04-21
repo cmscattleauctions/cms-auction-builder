@@ -415,11 +415,11 @@ const BW = 1920, BH = 200;
 
 // Where on the canvas each banner is placed.
 // Transition: full-width (3840x400), bottom flush.      pos = (0, 1760)
-// Option:     1500x380, centered horizontally, top.     pos = (1170, 0)
+// Option:     1500x380, top-left aligned.               pos = (0, 0)
 const TRANSITION_POS_X = 0;
 const TRANSITION_POS_Y = CANVAS_H - TBH;     // 1760 — bottom flush
-const OPTION_POS_X = (CANVAS_W - OBW) / 2;   // 1170 — centered horizontally
-const OPTION_POS_Y = 0;                       // top flush
+const OPTION_POS_X = 0;                       // 0 — left flush
+const OPTION_POS_Y = 0;                       // 0 — top flush
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
